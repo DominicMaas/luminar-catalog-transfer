@@ -57,8 +57,6 @@ foreach (var proxy in imageHistoryStateProxy)
     }
     
     item.History.Add(historyResource);
-    
-    var i = 0;
 }
 
 // Retrieve the appropriate path from the images table (this allows us to link up the new catalog)
@@ -136,14 +134,26 @@ try
                 var pathArr = ((string)resource.path_wide_ch).Split('/', '\\');
                 var newPath = pathArr[pathArr.Length - 1];
 
-                // Insert resource
-                var resId = await destinationConnection.QueryFirstAsync<long>(
-                    "INSERT INTO resources (marked_to_delete_bool, path_wide_ch) VALUES(@marked_to_delete_bool, @path_wide_ch); SELECT last_insert_rowid()", new
+                // Check to see if resource exists
+                var resId = await destinationConnection.QueryFirstOrDefaultAsync<long?>(
+                    "SELECT _id_int_64 FROM resources WHERE marked_to_delete_bool=@marked_to_delete_bool AND path_wide_ch=@path_wide_ch",
+                    new
                     {
                         resource.marked_to_delete_bool,
                         path_wide_ch = newPath
                     }, transaction: writeTransaction);
                 
+                // If this resource does not exist, insert it
+                if (resId == null)
+                {
+                    resId = await destinationConnection.QueryFirstAsync<long>(
+                        "INSERT INTO resources (marked_to_delete_bool, path_wide_ch) VALUES(@marked_to_delete_bool, @path_wide_ch); SELECT last_insert_rowid()", new
+                        {
+                            resource.marked_to_delete_bool,
+                            path_wide_ch = newPath
+                        }, transaction: writeTransaction);
+                }
+
                 // Insert resource history pair
                 await destinationConnection.ExecuteAsync(
                     "INSERT INTO img_history_states_resources (_key_id_int_64, _val_id_int_64) VALUES(@_key_id_int_64, @_val_id_int_64)",
@@ -152,9 +162,10 @@ try
                         _key_id_int_64 = insertedId,
                         _val_id_int_64 = resId
                     }, commandType: CommandType.Text, transaction: writeTransaction);
+
+                // Migrate the resource file
+                MigrateResourceFile(newPath);
             }
-            
-            
         }
     }
 
@@ -166,6 +177,59 @@ catch (Exception e)
     await writeTransaction.RollbackAsync();
     Console.WriteLine("Something went wrong! Rolling back changes: " + e.Message);
 }
+
+// Helpers
+
+string? ExtractResourcesFolder(string catalogLocation)
+{
+    var directory = Path.GetDirectoryName(catalogLocation);
+    if (string.IsNullOrEmpty(directory)) return null;
+
+    if (Directory.Exists(Path.Combine(directory, "CacheDocuments")))
+    {
+        return Path.Combine(directory, "CacheDocuments", "resources");
+    }
+    
+    if (Directory.Exists(Path.Combine(directory, "History")))
+    {
+        return Path.Combine(directory, "History", "resources");
+    }
+    
+    return null;
+}
+
+void MigrateResourceFile(string fileName)
+{
+    Console.WriteLine($"Migrating resource '{fileName}'...");
+
+    var sourceResources = ExtractResourcesFolder(sourcePath);
+    var destinationResources = ExtractResourcesFolder(destinationPath);
+
+    if (string.IsNullOrEmpty(sourceResources) || string.IsNullOrEmpty(destinationResources))
+    {
+        Console.WriteLine("Error! Cannot find resource!");
+    }
+
+    var sourceResource = Path.Combine(sourceResources!, fileName);
+    var destinationResource = Path.Combine(destinationResources!, fileName);
+
+    if (!File.Exists(sourceResource))
+    {
+        Console.WriteLine("Error! This resource cannot be found!");
+    }
+
+    if (File.Exists(destinationResource))
+    {
+        Console.WriteLine("Note: This resource has already been transferred");
+    }
+    else
+    {
+        File.Copy(sourceResource, destinationResource);
+    }
+}
+
+
+// Classes
 
 class ImageHistory
 {
