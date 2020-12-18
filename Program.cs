@@ -180,23 +180,55 @@ catch (Exception e)
 
 // Helpers
 
-string? ExtractResourcesFolder(string catalogLocation)
+string? ExtractDataFolder(string catalogLocation)
 {
     var directory = Path.GetDirectoryName(catalogLocation);
     if (string.IsNullOrEmpty(directory)) return null;
 
     if (Directory.Exists(Path.Combine(directory, "CacheDocuments")))
     {
-        return Path.Combine(directory, "CacheDocuments", "resources");
+        return Path.Combine(directory, "CacheDocuments");
     }
     
     if (Directory.Exists(Path.Combine(directory, "History")))
     {
-        return Path.Combine(directory, "History", "resources");
+        return Path.Combine(directory, "History");
     }
     
     return null;
 }
+
+string? ExtractResourcesFolder(string catalogLocation)
+{
+    var dataFolder = ExtractDataFolder(catalogLocation);
+    if (string.IsNullOrEmpty(dataFolder)) return null;
+    
+    if (Directory.Exists(Path.Combine(dataFolder, "CacheDocuments")))
+    {
+        return Path.Combine(dataFolder, "resources");
+    }
+    
+    if (Directory.Exists(Path.Combine(dataFolder, "History")))
+    {
+        return Path.Combine(dataFolder, "resources");
+    }
+    
+    return null;
+}
+
+void MigrateState(string state)
+{
+    Console.WriteLine($"Migrating state '{state}'...");
+    
+    var sourceData = ExtractDataFolder(sourcePath);
+    var destinationData = ExtractDataFolder(destinationPath);
+    
+    if (string.IsNullOrEmpty(sourceData) || string.IsNullOrEmpty(destinationData))
+    {
+        Console.WriteLine("Error! Cannot find data folder!");
+    }
+}
+
 
 void MigrateResourceFile(string fileName)
 {
@@ -207,7 +239,7 @@ void MigrateResourceFile(string fileName)
 
     if (string.IsNullOrEmpty(sourceResources) || string.IsNullOrEmpty(destinationResources))
     {
-        Console.WriteLine("Error! Cannot find resource!");
+        Console.WriteLine("Error! Cannot find resources folder!");
     }
 
     var sourceResource = Path.Combine(sourceResources!, fileName);
