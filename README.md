@@ -24,6 +24,8 @@ todo, but something like `name {path/to/source/catalog} {path/to/destionation/ca
 3. Insert `img_history_states` (keeping track of new inserted ids)
 4. Write proxy matchup within `image_history_state_proxy` between new image id and new history state id
 
-## Unkowns
+## Unknowns
 
-There is a `resources` match (`img_history_state_resources` and `resources`), unsure if this is important. there are hardcoded links to the cache folder that I cannot use anyway (Win10 --> macOS)
+There is a `resources` match (`img_history_state_resources` and `resources`), unsure if this is important. there are hardcoded links to the cache folder that I cannot use anyway (Win10 --> macOS).
+
+Turns out resources are in fact needed (file system and DB), need to move the file system across (relaitive to catalog), and then update resources in the DB)
