@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
+using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using Dapper;
 using Microsoft.Data.Sqlite;
 
@@ -21,6 +21,8 @@ await using var sourceConnection = new SqliteConnection($"DataSource={sourcePath
 
 var imageHistoryStates = (await sourceConnection.QueryAsync("SELECT * FROM img_history_states")).ToList();
 var imageHistoryStateProxy = await sourceConnection.QueryAsync("SELECT * FROM image_history_state_proxy");
+var resources = (await sourceConnection.QueryAsync("SELECT * FROM resources")).ToList();
+var imgHistoryStatesResources = (await sourceConnection.QueryAsync("SELECT * FROM img_history_states_resources")).ToList();
 
 // image_id - image history pair
 var imageHistory = new Dictionary<long, ImageHistory>();
@@ -31,16 +33,32 @@ foreach (var proxy in imageHistoryStateProxy)
     // Ensure this image is added to the dictionary
     if (!imageHistory.ContainsKey(proxy._image_id_int_64))
         imageHistory[proxy._image_id_int_64] = new ImageHistory();
+
+    var item = (ImageHistory)imageHistory[proxy._image_id_int_64];
     
     // Current set
     if (proxy.current == 1)
     {
-        imageHistory[proxy._image_id_int_64].CurrentId = proxy._state_id_int_64;
+        item.CurrentId = proxy._state_id_int_64;
     }
 
     // This should always have a match!
     var historyState = imageHistoryStates.First(x => x._id_int_64 == proxy._state_id_int_64);
-    imageHistory[proxy._image_id_int_64].History.Add(historyState);
+    var historyResource = new HistoryResource
+    {
+        History = historyState
+    };
+    
+    // Loop through each link and find the resource
+    foreach (var id in imgHistoryStatesResources.Where(x => x._key_id_int_64 == historyState._id_int_64))
+    {
+        var resource = resources.First(x => x._id_int_64 == id._val_id_int_64);
+        historyResource.Resources.Add(resource);
+    }
+    
+    item.History.Add(historyResource);
+    
+    var i = 0;
 }
 
 // Retrieve the appropriate path from the images table (this allows us to link up the new catalog)
@@ -91,14 +109,14 @@ try
                 "INSERT INTO img_history_states (marked_to_delete_bool, name_wide_ch, data_wide_ch, guid_wide_ch, crop_info_wide_ch, image_orientation_int_64, hash_wide_ch, original_bool) VALUES(@marked_to_delete_bool, @name_wide_ch, @data_wide_ch, @guid_wide_ch, @crop_info_wide_ch, @image_orientation_int_64, @hash_wide_ch, @original_bool); SELECT last_insert_rowid()",
                 new
                 {
-                    history.marked_to_delete_bool, 
-                    history.name_wide_ch, 
-                    history.data_wide_ch, 
-                    history.guid_wide_ch, 
-                    history.crop_info_wide_ch, 
-                    history.image_orientation_int_64, 
-                    history.hash_wide_ch, 
-                    history.original_bool
+                    history.History.marked_to_delete_bool, 
+                    history.History.name_wide_ch, 
+                    history.History.data_wide_ch, 
+                    history.History.guid_wide_ch, 
+                    history.History.crop_info_wide_ch, 
+                    history.History.image_orientation_int_64, 
+                    history.History.hash_wide_ch, 
+                    history.History.original_bool
                 }, commandType: CommandType.Text, transaction: writeTransaction);
         
             // Insert a proxy
@@ -108,12 +126,40 @@ try
                 {
                     ImageId = item.Key,
                     StateId = insertedId,
-                    Current = (history._id_int_64 == item.Value.CurrentId) ? 1 : 0
+                    Current = (history.History._id_int_64 == item.Value.CurrentId) ? 1 : 0
                 }, commandType: CommandType.Text, transaction: writeTransaction);
+            
+            // Loop through resources
+            foreach (var resource in history.Resources)
+            {
+                // Strip out everything apart from the name
+                var pathArr = ((string)resource.path_wide_ch).Split('/', '\\');
+                var newPath = pathArr[pathArr.Length - 1];
+
+                // Insert resource
+                var resId = await destinationConnection.QueryFirstAsync<long>(
+                    "INSERT INTO resources (marked_to_delete_bool, path_wide_ch) VALUES(@marked_to_delete_bool, @path_wide_ch); SELECT last_insert_rowid()", new
+                    {
+                        resource.marked_to_delete_bool,
+                        path_wide_ch = newPath
+                    }, transaction: writeTransaction);
+                
+                // Insert resource history pair
+                await destinationConnection.ExecuteAsync(
+                    "INSERT INTO img_history_states_resources (_key_id_int_64, _val_id_int_64) VALUES(@_key_id_int_64, @_val_id_int_64)",
+                    new
+                    {
+                        _key_id_int_64 = insertedId,
+                        _val_id_int_64 = resId
+                    }, commandType: CommandType.Text, transaction: writeTransaction);
+            }
+            
+            
         }
     }
 
-    await writeTransaction.CommitAsync();
+    //await writeTransaction.CommitAsync();
+    await writeTransaction.RollbackAsync(); // TESTING
 }
 catch (Exception e)
 {
@@ -125,5 +171,11 @@ class ImageHistory
 {
     public long CurrentId { get; set; }
     public string Path { get; set; }
-    public List<dynamic> History { get; set; } = new List<dynamic>();
+    public List<HistoryResource> History { get; set; } = new List<HistoryResource>();
+}
+
+class HistoryResource
+{
+    public List<dynamic> Resources { get; set; } = new List<dynamic>();
+    public dynamic History { get; set; }
 }
