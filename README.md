@@ -1,6 +1,15 @@
 # Luminar Catalog Transfer
 Transfer edits from one luminar catalog to another
 
+**Notes:**
+
+- This transfer matches based on the stored filename within the luminar catalog. Ensure your filenames match correctly)
+- **!!! Please backup your .luminar file before running this script !!!**
+
+## Usage
+
+todo, but something like `name {path/to/source/catalog} {path/to/destionation/catalog}`
+
 ## Read Steps
 
 1. Read source catalog
