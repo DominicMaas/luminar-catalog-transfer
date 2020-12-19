@@ -166,11 +166,13 @@ try
                 // Migrate the resource file
                 MigrateResourceFile(newPath);
             }
+
+            MigrateState(history.History.guid_wide_ch);
         }
     }
 
-    //await writeTransaction.CommitAsync();
-    await writeTransaction.RollbackAsync(); // TESTING
+    await writeTransaction.CommitAsync();
+    //await writeTransaction.RollbackAsync(); // TESTING
 }
 catch (Exception e)
 {
@@ -203,17 +205,7 @@ string? ExtractResourcesFolder(string catalogLocation)
     var dataFolder = ExtractDataFolder(catalogLocation);
     if (string.IsNullOrEmpty(dataFolder)) return null;
     
-    if (Directory.Exists(Path.Combine(dataFolder, "CacheDocuments")))
-    {
-        return Path.Combine(dataFolder, "resources");
-    }
-    
-    if (Directory.Exists(Path.Combine(dataFolder, "History")))
-    {
-        return Path.Combine(dataFolder, "resources");
-    }
-    
-    return null;
+    return Path.Combine(dataFolder, "resources");
 }
 
 void MigrateState(string state)
@@ -227,8 +219,25 @@ void MigrateState(string state)
     {
         Console.WriteLine("Error! Cannot find data folder!");
     }
+    
+    var sourceState = Path.Combine(sourceData!, $"{state}.state");
+    var destinationState = Path.Combine(destinationData!, $"{state}.state");
+    
+    if (!File.Exists(sourceState))
+    {
+        Console.WriteLine("Error! This state cannot be found!");
+        return;
+    }
+    
+    if (File.Exists(destinationState))
+    {
+        Console.WriteLine("Note: This state has already been transferred");
+    }
+    else
+    {
+        File.Copy(sourceState, destinationState);
+    }
 }
-
 
 void MigrateResourceFile(string fileName)
 {
@@ -248,6 +257,7 @@ void MigrateResourceFile(string fileName)
     if (!File.Exists(sourceResource))
     {
         Console.WriteLine("Error! This resource cannot be found!");
+        return;
     }
 
     if (File.Exists(destinationResource))
